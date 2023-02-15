@@ -1,0 +1,4 @@
+numpy
+jupyter 
+sentinelhub[AWS]
+eo-learn

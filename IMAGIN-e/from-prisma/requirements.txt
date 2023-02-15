@@ -1,0 +1,4 @@
+eo-learn-core
+eo-learn-io
+h5py
+gdal
