@@ -2,7 +2,7 @@
 
 Welcome to the OrbitalAI AI4EO challenge !!
 
-This repository contains the Jupyter notebooks, utility functions and utility data to get you started with simulating satellite imagery as is acquired on-board. You can simulated images to train your AI model for your at-the-edge application and win the challenge!
+This repository contains the Jupyter notebooks, utility functions and utility data to get you started with simulating satellite imagery as is acquired on-board. You can simulate images to train your AI model for your at-the-edge application and win the challenge!
 
 The challenge has two tracks:
 
