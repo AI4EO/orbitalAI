@@ -1,0 +1,17 @@
+# VSCode
+.vscode/settings.json
+
+# IDEA
+.idea/
+
+# egg-info
+*.egg-info/
+
+# __pycache__
+__pycache__/
+
+# ipynb
+.ipynb_checkpoints/
+
+# DS Store
+.DS_Store
