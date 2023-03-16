@@ -14,7 +14,7 @@ The folder `from-sentinel2` contains the code necessary to simulate HSI imagery 
 
 ## Requirements
 
-Check the challenge webpage for details on the goals of the challenge.
+Check the challenge webpage [https://platform.ai4eo.eu/orbitalai-imagin-e](https://platform.ai4eo.eu/orbitalai-imagin-e) for details on the goals of the challenge.
 
 ### Euro Data Cube
 

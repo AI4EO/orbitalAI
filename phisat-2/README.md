@@ -6,7 +6,7 @@ This repository contains a Jupyter notebook, utility functions and the GeoDataFr
 
 ## Requirements
 
-Check the challenge webpage for details on the goals of the challenge.
+Check the challenge webpage [https://platform.ai4eo.eu/orbitalai-phisat-2](https://platform.ai4eo.eu/orbitalai-phisat-2) for details on the goals of the challenge.
 
 ### Euro Data Cube
 
