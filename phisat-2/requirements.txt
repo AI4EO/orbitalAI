@@ -1,4 +1,4 @@
 numpy
 jupyter 
 sentinelhub[AWS]
-eo-learn
+eo-learn==1.3.1
