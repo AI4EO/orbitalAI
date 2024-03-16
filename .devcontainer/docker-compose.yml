@@ -1,0 +1,13 @@
+version: "2.4"
+
+services:
+  simulator:
+    image: orbitalai:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - ../:/workspace/
+    platform: linux/amd64
+
+    command: sleep infinity
