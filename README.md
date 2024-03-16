@@ -27,7 +27,7 @@ pip3 install -r requirements.txt
 
 This project includes a Dockerfile and docker-compose.yml located in the .devcontainer directory. When using VSCode, you can utilize the Devcontainers extension to automatically manage extensions, including Jupyter, within your Docker container.
 
-To launch the container, from the .devcontainer folder execute:
+To launch the container using docker-compose, from the .devcontainer folder execute:
 
 ```bash
 docker compose up 
