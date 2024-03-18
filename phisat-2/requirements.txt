@@ -1,6 +1,5 @@
 numpy==1.24.4
 h5py==3.9.0
-gdal==3.6.2
 jupyter==1.0.0
 chardet==4.0.0
 opencv-python==4.9.0.80
