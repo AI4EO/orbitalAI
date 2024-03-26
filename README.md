@@ -11,6 +11,28 @@ The challenge has two tracks:
 
 The two subfolders in this repo contain the notebooks to simulate the corresponding imagery, showing the simulation process, as well as describing how the pre-computed core datasets have been generated. 
 
+## Installation
+
+### Using pip
+
+**Note:** Ensure you have installed GDAL-3.6.2 or install it trough anaconda as in the Dockerfile.
+
+To install the required dependencies, execute:
+
+```bash
+pip3 install -r requirements.txt
+```
+
+### Using Docker
+
+This project includes a Dockerfile and docker-compose.yml located in the .devcontainer directory. When using VSCode, you can utilize the Devcontainers extension to automatically manage extensions, including Jupyter, within your Docker container.
+
+To launch the container using docker-compose, from the .devcontainer folder execute:
+
+```bash
+docker compose up 
+```
+
 ## Help and support
 
 For any issue relating to the notebooks or the data, open a ticket in the challenge Forum, so that we and the community can adequately support you. For improvements and fixes to the notebook, issues and pull requests can be opened in this AI4EO GitHub repository.
