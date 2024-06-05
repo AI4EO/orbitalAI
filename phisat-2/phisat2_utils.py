@@ -4,6 +4,7 @@ import tempfile
 from collections import defaultdict
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple
+from scipy.ndimage import convolve
 
 import cv2
 import geopandas as gpd
@@ -35,6 +36,77 @@ from sentinelhub import (
     pixel_to_utm,
 )
 from sentinelhub.aws.request import AwsProductRequest
+
+
+class AlternativePhisatCalculationTask(EOTask):
+    KERNEL_BANDS = ["B1", "B2", "B3", "B0", "B7", "B4", "B5", "B6"]
+    SNR_BANDS = ["B02", "B03", "B04", "PAN", "B08", "B05", "B06", "B07"]
+
+    def __init__(
+        self,
+        input_feature: Tuple[FeatureType, str],
+        snr_feature: Tuple[FeatureType, str],
+        snr_values: Dict[str, int],
+        l_ref: float,
+        psf_feature: Tuple[FeatureType, str],
+        psf_kernel: Dict[str, np.array],
+    ):
+        """Wapper task to simulate dummy SNR and PSF noise
+
+        :param input_feature: Input feature holding radiance values.
+        :param snr_feature: Output feature with SNR simulated (dummy) values.
+        :param psf_feature: Output feature with PSF simulated (dummy) values.
+        :param snr_values: A dictionary of SNR values for Sentinel-2 bands ["B02", "B03", "B04", "PAN", "B08", "B05", "B06", "B07"].
+        :param psf_kernel: A dictionary of PSF 7x7 kernels for PhiSat bands bands ["B1", "B2", "B3", "B0", "B7", "B4", "B5", "B6"].
+        :param l_ref: Spectral Radiance at Aperture (W/m^2/sr/um), a reference radiance used to generate the specific SNR
+        """
+        self.input_feature = input_feature
+        self.snr_feature = snr_feature
+        self.psf_feature = psf_feature
+
+        if all([band in AlternativePhisatCalculationTask.SNR_BANDS for band in snr_values.keys()]):
+            self.snr_values = snr_values
+        else:
+            raise Exception("`snr_values` dictionary is missing SNR values for some bands!")
+
+        if all([band in AlternativePhisatCalculationTask.KERNEL_BANDS for band in psf_kernel.keys()]):
+            self.psf_kernel = psf_kernel
+        else:
+            raise Exception("`psf_kernel` dictionary is missing PSF kernel(s) for some bands!")
+
+        self.l_ref = l_ref
+
+    def add_psf(self, eopatch):
+        convolved_data = np.concatenate(
+            [
+                np.concatenate(
+                    [
+                        convolve(_data[..., band], self.psf_kernel[kernel_band], mode="mirror")[..., np.newaxis]
+                        for band, kernel_band in enumerate(AlternativePhisatCalculationTask.KERNEL_BANDS)
+                    ],
+                    axis=-1,
+                )[np.newaxis, ...]
+                for _data in eopatch[self.input_feature]
+            ],
+            axis=0,
+        )
+        eopatch[self.psf_feature] = convolved_data
+
+    def add_snr(self, eopatch):
+        radiances = eopatch[self.input_feature]
+        random_noise = np.random.normal(size=radiances.shape)
+
+        snr = np.array([self.snr_values[band] for band in AlternativePhisatCalculationTask.SNR_BANDS])
+        snr = np.reshape(snr, (1, 1, 1, len(snr)))  # t, h, w, d
+
+        noisy_radiances = radiances + self.l_ref * random_noise / snr
+        eopatch[self.snr_feature] = noisy_radiances
+
+    def execute(self, eopatch: EOPatch) -> EOPatch:
+        self.add_psf(eopatch)
+        self.add_snr(eopatch)
+
+        return eopatch
 
 
 class SCLCloudTask(EOTask):
@@ -70,19 +142,13 @@ class AddPANBandTask(EOTask):
         :param output_feature: Output feature holding Sentinel-2 bands and pan-chromatic band.
             The pan-chromatic band is inserted at index 3.
         """
-        self.input_feature = self.parse_feature(
-            input_feature, allowed_feature_types=[FeatureType.DATA]
-        )
-        self.output_feature = self.parse_feature(
-            output_feature, allowed_feature_types=[FeatureType.DATA]
-        )
+        self.input_feature = self.parse_feature(input_feature, allowed_feature_types=[FeatureType.DATA])
+        self.output_feature = self.parse_feature(output_feature, allowed_feature_types=[FeatureType.DATA])
 
     def execute(self, eopatch: EOPatch) -> EOPatch:
         bands = eopatch[self.input_feature]
 
-        assert (
-            len(PAN_WEIGHTS) == bands.shape[-1]
-        ), "The number of bands of the input features must be 7"
+        assert len(PAN_WEIGHTS) == bands.shape[-1], "The number of bands of the input features must be 7"
 
         pan_band = np.sum(bands * np.array(PAN_WEIGHTS) / sum(PAN_WEIGHTS), axis=-1)
 
@@ -103,9 +169,7 @@ class AddMetadataTask(EOTask):
         self.config = config
 
     @staticmethod
-    def filter_and_sort_tiles(
-        tiles: List[Dict], timestamps: List[datetime]
-    ) -> List[Dict]:
+    def filter_and_sort_tiles(tiles: List[Dict], timestamps: List[datetime]) -> List[Dict]:
         filtered_tiles = []
         available_dates = []
         for tile in tiles:
@@ -115,16 +179,12 @@ class AddMetadataTask(EOTask):
                 available_dates.append(tile_dt.date())
                 filtered_tiles.append(tile)
         if len(filtered_tiles) != len(timestamps):
-            raise ValueError(
-                f"Expected {len(timestamps)} tiles, got {len(filtered_tiles)}!"
-            )
+            raise ValueError(f"Expected {len(timestamps)} tiles, got {len(filtered_tiles)}!")
         return sorted(filtered_tiles, key=lambda item: item["timestamp"])
 
     def execute(self, eopatch: EOPatch, **kwargs) -> EOPatch:
         if not all([eopatch, eopatch.bbox, eopatch.timestamp]):
-            raise ValueError(
-                "AddMetadataTask needs eopatch to have bbox and temporal data!"
-            )
+            raise ValueError("AddMetadataTask needs eopatch to have bbox and temporal data!")
 
         # the metadata info location has been changed since 2022-01-25
         catalog = SentinelHubCatalog(self.config)
@@ -141,32 +201,21 @@ class AddMetadataTask(EOTask):
             eopatch.scalar[f"sol_irr_{s2_band}"] = np.ones((dim, 1))
 
         for tile_idx, (tile, timestamp) in enumerate(zip(tiles, eopatch.timestamp)):
-            metadata = AwsProductRequest(
-                product_id=tile["id"], bands=[], metafiles=["metadata"]
-            ).get_data()
+            metadata = AwsProductRequest(product_id=tile["id"], bands=[], metafiles=["metadata"]).get_data()
 
             index_refl_conversion = 4
             if timestamp >= datetime.strptime("2022-01-25", "%Y-%m-%d"):
                 index_refl_conversion = 5
 
-            assert (
-                metadata[0][0][1][index_refl_conversion][0].tag == "U"
-            ), "Issue indexing metadata"
-            assert (
-                metadata[0][0][1][index_refl_conversion][1].tag
-                == "Solar_Irradiance_List"
-            ), "Issue indexing metadata"
+            assert metadata[0][0][1][index_refl_conversion][0].tag == "U", "Issue indexing metadata"
+            assert metadata[0][0][1][index_refl_conversion][1].tag == "Solar_Irradiance_List", "Issue indexing metadata"
 
-            eopatch.scalar["earth_sun_dist"][tile_idx] = float(
-                metadata[0][0][1][index_refl_conversion][0].text
-            )
+            eopatch.scalar["earth_sun_dist"][tile_idx] = float(metadata[0][0][1][index_refl_conversion][0].text)
 
             solar_irradiance_list = metadata[0][0][1][index_refl_conversion][1]
             for s2_idx, s2_band in enumerate(DataCollection.SENTINEL2_L1C.bands):
                 if s2_band.name in S2_BANDS:
-                    eopatch.scalar[f"sol_irr_{s2_band.name}"][tile_idx] = float(
-                        solar_irradiance_list[s2_idx].text
-                    )
+                    eopatch.scalar[f"sol_irr_{s2_band.name}"][tile_idx] = float(solar_irradiance_list[s2_idx].text)
 
         return eopatch
 
@@ -174,9 +223,9 @@ class AddMetadataTask(EOTask):
 def get_shifts_l1a() -> List[Tuple[float, float]]:
     """Compute random shifts for L1A level"""
 
-    mis_amplitude = np.random.normal(
-        L1A_RAND_MEAN, L1A_RAND_STD, size=(len(S2_PAN_BANDS),)
-    ) + np.array(L1A_RELATIVE_SHIFTS)
+    mis_amplitude = np.random.normal(L1A_RAND_MEAN, L1A_RAND_STD, size=(len(S2_PAN_BANDS),)) + np.array(
+        L1A_RELATIVE_SHIFTS
+    )
     mis_angle = np.random.uniform(low=0, high=2 * np.pi, size=(len(S2_PAN_BANDS),))
 
     shifts = (mis_amplitude * (np.cos(mis_angle), np.sin(mis_angle))).T
@@ -231,7 +280,6 @@ class BandMisalignmentTask(EOTask):
         rand_std = self.std_sea if is_in_water else 1
 
         for ts_idx, eop_ts in enumerate(eopatch[self.input_feature]):
-
             warp_matrix = np.eye(3)[:2, :]
 
             if self.processing_level.value == ProcessingLevels.L1A.value:
@@ -244,7 +292,6 @@ class BandMisalignmentTask(EOTask):
             bands_shifted = []
 
             for b_idx in range(eop_ts.shape[-1]):
-
                 eop_ts_band = eop_ts[..., b_idx]
                 warp_matrix[:, 2] = shift_vectors[b_idx]
 
@@ -258,9 +305,7 @@ class BandMisalignmentTask(EOTask):
                 )
                 bands_shifted.append(band)
 
-            eopatch[self.output_feature][ts_idx] = np.moveaxis(
-                np.array(bands_shifted), 0, -1
-            )
+            eopatch[self.output_feature][ts_idx] = np.moveaxis(np.array(bands_shifted), 0, -1)
 
         eopatch.meta_info["Shifts"] = shift_dict
         return eopatch
@@ -307,12 +352,7 @@ class CalculateRadianceTask(EOTask):
         self.output_feature = self.parse_feature(output_feature)
 
     def execute(self, eopatch):
-        assert all(
-            [
-                isinstance(eopatch.scalar[f"sol_irr_{band}"], np.ndarray)
-                for band in S2_BANDS
-            ]
-        )
+        assert all([isinstance(eopatch.scalar[f"sol_irr_{band}"], np.ndarray) for band in S2_BANDS])
         assert isinstance(eopatch.scalar["earth_sun_dist"], np.ndarray)
 
         factor = (
@@ -325,11 +365,7 @@ class CalculateRadianceTask(EOTask):
             axis=-1,
         )
 
-        radiances = (
-            eopatch[self.input_feature]
-            * factor
-            * solar_irradiances[:, :, np.newaxis, :]
-        )
+        radiances = eopatch[self.input_feature] * factor * solar_irradiances[:, :, np.newaxis, :]
         eopatch[self.output_feature] = radiances
         return eopatch
 
@@ -354,12 +390,7 @@ class CalculateReflectanceTask(EOTask):
 
     def execute(self, eopatch: EOPatch) -> EOPatch:
         if self.processing_level.value == ProcessingLevels.L1C.value:
-            assert all(
-                [
-                    isinstance(eopatch.scalar[f"sol_irr_{band}"], np.ndarray)
-                    for band in S2_BANDS
-                ]
-            )
+            assert all([isinstance(eopatch.scalar[f"sol_irr_{band}"], np.ndarray) for band in S2_BANDS])
             assert isinstance(eopatch.scalar["earth_sun_dist"], np.ndarray)
 
             # We don't have the irradiance for the PAN band, so we compute it as weighted sum
@@ -375,16 +406,11 @@ class CalculateReflectanceTask(EOTask):
                 / np.pi
             )
             solar_irradiances = np.concatenate(
-                [
-                    eopatch.scalar[f"sol_irr_{band}"][:, :, np.newaxis]
-                    for band in S2_PAN_BANDS
-                ],
+                [eopatch.scalar[f"sol_irr_{band}"][:, :, np.newaxis] for band in S2_PAN_BANDS],
                 axis=-1,
             )
 
-            reflectances = eopatch[self.input_feature] / (
-                factor * solar_irradiances[:, :, np.newaxis, :]
-            )
+            reflectances = eopatch[self.input_feature] / (factor * solar_irradiances[:, :, np.newaxis, :])
             eopatch[self.output_feature] = reflectances
         else:
             eopatch[self.output_feature] = eopatch[self.input_feature]
@@ -412,9 +438,7 @@ class PhisatCalculationTask(EOTask):
         self.calculation = calculation
 
     def execute(self, eopatch: EOPatch) -> EOPatch:
-        with tempfile.TemporaryDirectory(
-            prefix="phisat2_calc", suffix=self.calculation
-        ) as temp_dir:
+        with tempfile.TemporaryDirectory(prefix="phisat2_calc", suffix=self.calculation) as temp_dir:
             input_npy = os.path.join(temp_dir, "input.npy")
             output_npy = os.path.join(temp_dir, "output.npy")
 
@@ -423,9 +447,7 @@ class PhisatCalculationTask(EOTask):
 
             # run exec
             subprocess.run(
-                f"{self.executable} {self.calculation} {input_npy} {output_npy}".split(
-                    " "
-                ),
+                f"{self.executable} {self.calculation} {input_npy} {output_npy}".split(" "),
                 check=True,
             )
 
@@ -509,13 +531,8 @@ class GriddingTask(EOTask):
         def pixel_to_utm_transformer(column, row):
             return pixel_to_utm(row, column, transform=transform)
 
-        utm_polygons = [
-            shapely.ops.transform(pixel_to_utm_transformer, polygon)
-            for polygon in stats["pixel_geometry"]
-        ]
-        crop_grid_gdf = gpd.GeoDataFrame(
-            stats, geometry=utm_polygons, crs=eopatch.bbox.crs.pyproj_crs()
-        )
+        utm_polygons = [shapely.ops.transform(pixel_to_utm_transformer, polygon) for polygon in stats["pixel_geometry"]]
+        crop_grid_gdf = gpd.GeoDataFrame(stats, geometry=utm_polygons, crs=eopatch.bbox.crs.pyproj_crs())
         return crop_grid_gdf
 
 
@@ -559,21 +576,17 @@ class ExportGridToTiff(EOTask):
         )
 
     def execute(self, eopatch: EOPatch) -> EOPatch:
-
         gridded_data = eopatch[self.data_stack_feature]
         gdf = eopatch[self.grid_feature]
 
         for n_row, row in gdf.iterrows():
-
             temp_eop = EOPatch(
                 data={"TEMP_CELL": gridded_data[[n_row]]},
                 bbox=BBox(row.geometry, crs=eopatch.bbox.crs),
                 timestamp=[eopatch.timestamp[self.time_index]],
             )
 
-            timestamp_str = eopatch.timestamp[self.time_index].strftime(
-                "%Y-%m-%dT%H-%M-%S"
-            )
+            timestamp_str = eopatch.timestamp[self.time_index].strftime("%Y-%m-%dT%H-%M-%S")
             bbox_str = f"{int(eopatch.bbox.middle[0])}-{int(eopatch.bbox.middle[1])}"
             utm_crs_str = f"{eopatch.bbox.crs.epsg}"
             self.export_task(
