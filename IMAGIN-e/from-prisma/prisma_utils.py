@@ -130,7 +130,9 @@ def PRSdata_DN2Rad(data: Dict, attr: Dict) -> Dict:
     return data
 
 
-def gdaltranslateWrapper(inFname: str, outFname: str, latgrid: np.ndarray, longrid: np.ndarray):
+def gdaltranslateWrapper(
+    inFname: str, outFname: str, latgrid: np.ndarray, longrid: np.ndarray
+):
     """Run `gdal_translate` to add geolocation information to tiffs in WGS84 CRS"""
     # SETUP
     nrows = latgrid.shape[0]
@@ -161,7 +163,9 @@ def gdaltranslateWrapper(inFname: str, outFname: str, latgrid: np.ndarray, longr
     print(result.stdout.decode("utf-8"))
 
 
-def gdalwarpWrapper(inFname: str, outFname: str, EPSGcode: str, xres: int = 30, yres: int = 30):
+def gdalwarpWrapper(
+    inFname: str, outFname: str, EPSGcode: str, xres: int = 30, yres: int = 30
+):
     """Run gdalwrap to project the raster image to a UTM CRS"""
     # build command
     command = f"gdalwarp -t_srs EPSG:{EPSGcode} -tr {xres:.3f} {yres:.3f} -overwrite {inFname} {outFname}"
@@ -248,24 +252,34 @@ class ReadAndPreprocessPrismaTask(EOTask):
 
             # Save hyperspectral cube as geotiff adding corner info (using gdal_translate)
             outGeoTiffFname_vnir = os.path.join(tmpdirname, "vnirCubeWithCorners.tiff")
-            gdaltranslateWrapper(outTiffFname_vnir, outGeoTiffFname_vnir, latgrid, longrid)
+            gdaltranslateWrapper(
+                outTiffFname_vnir, outGeoTiffFname_vnir, latgrid, longrid
+            )
 
             outGeoTiffFname_swir = os.path.join(tmpdirname, "swirCubeWithCorners.tiff")
-            gdaltranslateWrapper(outTiffFname_swir, outGeoTiffFname_swir, latgrid, longrid)
+            gdaltranslateWrapper(
+                outTiffFname_swir, outGeoTiffFname_swir, latgrid, longrid
+            )
 
             # Compute UTM Zone for pixel @center of Lat/Lon grids
             centerLat = latgrid[latgrid.shape[0] // 2, latgrid.shape[1] // 2]
             centerLon = longrid[longrid.shape[0] // 2, longrid.shape[1] // 2]
-            (centerEast, centerNorth, UTMZoneNumber, UTMZoneLetter) = utm.from_latlon(centerLat, centerLon)
+            (centerEast, centerNorth, UTMZoneNumber, UTMZoneLetter) = utm.from_latlon(
+                centerLat, centerLon
+            )
 
             # use PROJ dictionary, assuming a default WGS84
             isSouth = True if centerLon < 0 else False
-            crs = CRS.from_dict({"proj": "utm", "zone": UTMZoneNumber, "south": isSouth})
+            crs = CRS.from_dict(
+                {"proj": "utm", "zone": UTMZoneNumber, "south": isSouth}
+            )
             EPSGcode = crs.to_authority()[1]
 
             # Warp hyperspectral cube in UTM projection, w/ custom pixel spacing (IF NEEDED)
 
-            outTiffWarpedFname_vnir = os.path.join(tmpdirname, f"vnirCubeWarped_EPSG_{EPSGcode}.tiff")
+            outTiffWarpedFname_vnir = os.path.join(
+                tmpdirname, f"vnirCubeWarped_EPSG_{EPSGcode}.tiff"
+            )
             gdalwarpWrapper(
                 outGeoTiffFname_vnir,
                 outTiffWarpedFname_vnir,
@@ -274,7 +288,9 @@ class ReadAndPreprocessPrismaTask(EOTask):
                 PRISMA_PIX_SIZE,
             )
 
-            outTiffWarpedFname_swir = os.path.join(tmpdirname, f"swirCubeWarped_EPSG_{EPSGcode}.tiff")
+            outTiffWarpedFname_swir = os.path.join(
+                tmpdirname, f"swirCubeWarped_EPSG_{EPSGcode}.tiff"
+            )
             gdalwarpWrapper(
                 outGeoTiffFname_swir,
                 outTiffWarpedFname_swir,
@@ -284,11 +300,19 @@ class ReadAndPreprocessPrismaTask(EOTask):
             )
 
             # covert tiff to EOPatch
-            TiffToEopatchTask = ImportFromTiffTask(feature=(FeatureType.DATA, "vnir"), folder=tmpdirname, use_vsi=False)
-            eopatch = TiffToEopatchTask.execute(filename=f"vnirCubeWarped_EPSG_{EPSGcode}.tiff")
+            TiffToEopatchTask = ImportFromTiffTask(
+                feature=(FeatureType.DATA, "vnir"), folder=tmpdirname, use_vsi=False
+            )
+            eopatch = TiffToEopatchTask.execute(
+                filename=f"vnirCubeWarped_EPSG_{EPSGcode}.tiff"
+            )
 
-            TiffToEopatchTask = ImportFromTiffTask(feature=(FeatureType.DATA, "swir"), folder=tmpdirname, use_vsi=False)
-            TiffToEopatchTask.execute(eopatch, filename=f"swirCubeWarped_EPSG_{EPSGcode}.tiff")
+            TiffToEopatchTask = ImportFromTiffTask(
+                feature=(FeatureType.DATA, "swir"), folder=tmpdirname, use_vsi=False
+            )
+            TiffToEopatchTask.execute(
+                eopatch, filename=f"swirCubeWarped_EPSG_{EPSGcode}.tiff"
+            )
 
             eopatch.meta_info = attrPRS
             eopatch.timestamp = [self.get_timestamp_from_filename(filename=filename)]
@@ -302,8 +326,12 @@ class MergeAndSortTask(EOTask):
         output_feature: Tuple[FeatureType, str],
         cw_feature: Tuple[FeatureType, str],
     ):
-        self.output_feature = self.parse_feature(output_feature, allowed_feature_types=FeatureType.DATA)
-        self.cw_feature = self.parse_feature(cw_feature, allowed_feature_types=FeatureType.SCALAR_TIMELESS)
+        self.output_feature = self.parse_feature(
+            output_feature, allowed_feature_types=FeatureType.DATA
+        )
+        self.cw_feature = self.parse_feature(
+            cw_feature, allowed_feature_types=FeatureType.SCALAR_TIMELESS
+        )
 
     def execute(self, eopatch: EOPatch) -> EOPatch:
         swir_valid = np.array(eopatch.meta_info["cw_swir_flags"], dtype=bool)
@@ -352,7 +380,9 @@ class RemoveBandsTask(EOTask):
         cw_mask = (self.min_spectra < cw_prisma) & (cw_prisma < self.max_spectra)
 
         eopatch[self.feature_cw[0]][self.feature_cw[2]] = cw_prisma[cw_mask]
-        eopatch[self.feature[0]][self.feature[2]] = eopatch[self.feature[0]][self.feature[1]][..., cw_mask]
+        eopatch[self.feature[0]][self.feature[2]] = eopatch[self.feature[0]][
+            self.feature[1]
+        ][..., cw_mask]
 
         return eopatch
 
@@ -388,7 +418,9 @@ class SpectralResamplingTask(EOTask):
             spline = CubicSpline(cw_prisma, bands[idx])
             bands_new[idx, :] = spline(HSI_CW)
 
-        eopatch[self.feature[0]][self.feature[2]] = bands_new.reshape(1, height, width, len(HSI_CW))
+        eopatch[self.feature[0]][self.feature[2]] = bands_new.reshape(
+            1, height, width, len(HSI_CW)
+        )
 
         return eopatch
 
@@ -407,7 +439,9 @@ class ResizeTask(EOTask):
     def execute(self, eopatch):
         eopatch_new = EOPatch(timestamp=eopatch.timestamp, meta_info=eopatch.meta_info)
 
-        height, width = eopatch.get_spatial_dimension(self.features[0][0], self.features[0][1])
+        height, width = eopatch.get_spatial_dimension(
+            self.features[0][0], self.features[0][1]
+        )
 
         height_new = height * self.pixel_size_old / self.pixel_size_new
         width_new = width * self.pixel_size_old / self.pixel_size_new
@@ -447,7 +481,9 @@ class HSICalculationTask(EOTask):
         self.calculation = calculation
 
     def execute(self, eopatch: EOPatch) -> EOPatch:
-        with tempfile.TemporaryDirectory(prefix="hsi_calc", suffix=self.calculation) as temp_dir:
+        with tempfile.TemporaryDirectory(
+            prefix="hsi_calc", suffix=self.calculation
+        ) as temp_dir:
             input_npy = os.path.join(temp_dir, "input.npy")
             output_npy = os.path.join(temp_dir, "output.npy")
 
@@ -456,7 +492,9 @@ class HSICalculationTask(EOTask):
 
             # run exec
             subprocess.run(
-                f"{self.executable} {self.calculation} {input_npy} {output_npy}".split(" "),
+                f"{self.executable} {self.calculation} {input_npy} {output_npy}".split(
+                    " "
+                ),
                 check=True,
             )
 
@@ -492,10 +530,17 @@ class AlternativeHSICalculationTask(EOTask):
         self.snr_feature = snr_feature
         self.psf_feature = psf_feature
 
-        if all([band in AlternativeHSICalculationTask.SNR_BANDS for band in snr_values.keys()]):
+        if all(
+            [
+                band in AlternativeHSICalculationTask.HSI_BANDS
+                for band in snr_values.keys()
+            ]
+        ):
             self.snr_values = snr_values
         else:
-            raise Exception("`snr_values` dictionary is missing SNR values for some bands!")
+            raise Exception(
+                "`snr_values` dictionary is missing SNR values for some bands!"
+            )
 
         if psf_kernel.shape == (7, 7):
             self.psf_kernel = psf_kernel
@@ -507,9 +552,11 @@ class AlternativeHSICalculationTask(EOTask):
     def add_psf(self, eopatch):
         convolved_data = np.concatenate(
             [
-                convolve(data_[..., ch], self.psf_kernel, mode="mirror")[..., np.newaxis]
-                for data_ in data
-                for ch in np.arange(eopatch[self.snr_feature].shape[-1])
+                convolve(data_[..., ch], self.psf_kernel, mode="mirror")[
+                    ..., np.newaxis
+                ]
+                for data_ in eopatch[self.snr_feature]
+                for ch in np.arange(data_.shape[-1])
             ],
             axis=-1,
         )[np.newaxis, ...]
@@ -519,10 +566,14 @@ class AlternativeHSICalculationTask(EOTask):
         radiances = eopatch[self.input_feature]
         random_noise = np.random.normal(size=radiances.shape)
 
-        snr = np.array([self.snr_values[band] for band in AlternativeHSICalculationTask.HSI_BANDS])
+        snr = np.array(
+            [self.snr_values[band] for band in AlternativeHSICalculationTask.HSI_BANDS]
+        )
         snr = np.reshape(snr, (1, 1, 1, len(snr)))  # t, h, w, d
 
-        noisy_radiances = radiances * (1 + np.sqrt(radiances) * random_noise / (snr * np.sqrt(self.l_ref)))
+        noisy_radiances = radiances * (
+            1 + np.sqrt(radiances) * random_noise / (snr * np.sqrt(self.l_ref))
+        )
         eopatch[self.snr_feature] = noisy_radiances
 
     def execute(self, eopatch: EOPatch) -> EOPatch:
@@ -538,7 +589,9 @@ def get_shifts(direction: Tuple[float, float]) -> List[Tuple[float, float]]:
     mis_amplitude = np.random.normal(RAND_MEAN, RAND_STD, size=(len(HSI_BANDS),))
     mis_angle = np.random.uniform(low=0, high=2 * np.pi, size=(len(HSI_BANDS),))
 
-    shifts = (mis_amplitude * (np.cos(mis_angle), np.sin(mis_angle))).T + np.array(direction) * RELATIVE_SHIFT
+    shifts = (mis_amplitude * (np.cos(mis_angle), np.sin(mis_angle))).T + np.array(
+        direction
+    ) * RELATIVE_SHIFT
     shifts[0, :] = np.array([0.0, 0.0])
 
     shifts = np.cumsum(shifts, axis=0)
@@ -594,7 +647,9 @@ class BandMisalignmentTask(EOTask):
 
                 bands_shifted.append(band[..., np.newaxis])
 
-            eopatch[feat_type][new_feat_name][ts_idx] = np.concatenate(bands_shifted, axis=-1)
+            eopatch[feat_type][new_feat_name][ts_idx] = np.concatenate(
+                bands_shifted, axis=-1
+            )
 
         eopatch.meta_info["Shifts"] = shift_dict
         return eopatch
@@ -621,7 +676,9 @@ class CalculateReflectanceTask(EOTask):
 
     def execute(self, eopatch: EOPatch) -> EOPatch:
         if self.processing_level.value == ProcessingLevels.L1C.value:
-            assert len(eopatch.timestamp) == 1, "Implementation supports one timestamp only"
+            assert (
+                len(eopatch.timestamp) == 1
+            ), "Implementation supports one timestamp only"
 
             doy = eopatch.timestamp[0].timetuple().tm_yday
             sun_zenith = eopatch.meta_info["sun_zenith"]
@@ -631,11 +688,16 @@ class CalculateReflectanceTask(EOTask):
                 np.pi
                 * sun_earth_dist**2
                 * eopatch[self.feature[0]][self.feature[1]]
-                / (np.cos(np.radians(sun_zenith)) * HSI_IRR.reshape(1, 1, 1, len(HSI_IRR)))
+                / (
+                    np.cos(np.radians(sun_zenith))
+                    * HSI_IRR.reshape(1, 1, 1, len(HSI_IRR))
+                )
             )
             eopatch[self.feature[0]][self.feature[2]] = reflectances
         else:
-            eopatch[self.feature[0]][self.feature[2]] = eopatch[self.feature[0]][self.feature[1]]
+            eopatch[self.feature[0]][self.feature[2]] = eopatch[self.feature[0]][
+                self.feature[1]
+            ]
         return eopatch
 
 
@@ -712,8 +774,13 @@ class GriddingTask(EOTask):
         def pixel_to_utm_transformer(column, row):
             return pixel_to_utm(row, column, transform=transform)
 
-        utm_polygons = [shapely.ops.transform(pixel_to_utm_transformer, polygon) for polygon in stats["pixel_geometry"]]
-        crop_grid_gdf = gpd.GeoDataFrame(stats, geometry=utm_polygons, crs=eopatch.bbox.crs.pyproj_crs())
+        utm_polygons = [
+            shapely.ops.transform(pixel_to_utm_transformer, polygon)
+            for polygon in stats["pixel_geometry"]
+        ]
+        crop_grid_gdf = gpd.GeoDataFrame(
+            stats, geometry=utm_polygons, crs=eopatch.bbox.crs.pyproj_crs()
+        )
         return crop_grid_gdf
 
 
@@ -767,7 +834,9 @@ class ExportGridToTiff(EOTask):
                 timestamp=[eopatch.timestamp[self.time_index]],
             )
 
-            timestamp_str = eopatch.timestamp[self.time_index].strftime("%Y-%m-%dT%H-%M-%S")
+            timestamp_str = eopatch.timestamp[self.time_index].strftime(
+                "%Y-%m-%dT%H-%M-%S"
+            )
             bbox_str = f"{int(eopatch.bbox.middle[0])}-{int(eopatch.bbox.middle[1])}"
             utm_crs_str = f"{eopatch.bbox.crs.epsg}"
 
